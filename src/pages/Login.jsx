@@ -43,8 +43,7 @@ export default function Login() {
           <Link to="/register" className="link">Create account</Link>
         </div>
         <div className="mt-6 rounded-lg bg-slate-100 p-4 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          <p><strong>User:</strong> demo@questlog.test / demo1234</p>
-          <p><strong>Admin:</strong> admin@questlog.test / admin1234</p>
+          
         </div>
       </section>
     </main>
