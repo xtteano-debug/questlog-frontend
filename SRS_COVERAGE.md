@@ -1,6 +1,6 @@
 # QuestLog SRS Frontend Coverage
 
-This frontend-only build represents FR-001 through FR-025 as interactive browser workflows. Database, backend, JWT, bcrypt, Express controllers, and MySQL schema are not included in this version because the requested scope is frontend-only.
+This full-stack build represents FR-001 through FR-025 with React frontend routes and Express/MySQL backend endpoints. JWT authentication, bcrypt password hashing, protected routes, admin authorization, database schema, and seed scripts are included.
 
 ## Authentication Module
 

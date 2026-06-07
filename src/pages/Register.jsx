@@ -8,10 +8,10 @@ export default function Register() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ username: '', email: '', password: '', confirmPassword: '' });
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     if (form.password !== form.confirmPassword) return;
-    const result = register(form);
+    const result = await register(form);
     if (result.ok) navigate('/login');
   }
 

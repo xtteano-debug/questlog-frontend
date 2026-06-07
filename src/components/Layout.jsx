@@ -62,8 +62,8 @@ export default function Layout() {
     (item) => item.user_id === currentUser?.user_id && item.notification_status === 'unread',
   ).length;
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     navigate('/login');
   }
 

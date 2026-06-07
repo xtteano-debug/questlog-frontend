@@ -8,9 +8,9 @@ export default function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: 'demo@questlog.test', password: 'demo1234' });
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
-    const result = login(form.email, form.password);
+    const result = await login(form.email, form.password);
     if (result.ok) {
       navigate(result.role === 'admin' ? '/admin' : '/dashboard');
     }

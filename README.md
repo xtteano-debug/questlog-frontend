@@ -1,17 +1,16 @@
-# QuestLog Frontend
+# QuestLog Full-Stack App
 
-QuestLog is a frontend-only React implementation of the gamified task management web application described in the SRS prompt. Backend, MySQL, JWT, bcrypt, and server-side API behavior are intentionally excluded because this version is designed for frontend checking and Vercel deployment.
+QuestLog is a React + Express + MySQL implementation of the gamified task management web application described in the SRS prompt.
 
-The app still demonstrates the requested workflows using browser `localStorage`:
+The project includes:
 
-- User registration, login, logout, password reset, and session persistence
-- User task CRUD: create, view, update, delete, complete, and revert tasks
-- Easy, medium, and hard priority badges
-- Deadline storage, overdue display, and notifications
-- Progress percentage and progress bar
-- Isolated administrator dashboard
-- User search, deactivate/reactivate controls, notifications, and activity logs
-- Responsive light/dark mode UI
+- React, Vite, Tailwind CSS, React Router, and Axios frontend
+- Node.js and Express backend
+- MySQL schema and seed script
+- JWT authentication
+- bcrypt password hashing with 12 salt rounds
+- User task CRUD
+- Admin user management, notifications, and activity logs
 
 ## Demo Accounts
 
@@ -32,15 +31,80 @@ Install these first:
 - Node.js LTS
 - VS Code
 - Git
+- MySQL Server 8.0
+- MySQL Workbench 8.0
 
-## Local Run
+## Database Setup
 
-```bash
+1. Open MySQL Workbench.
+2. Connect to your local MySQL Server.
+3. Open `backend/database/schema.sql`.
+4. Run the full SQL script.
+
+This creates the `questlog` database and these tables:
+
+- `users`
+- `tasks`
+- `notifications`
+- `activity_logs`
+
+## Backend Setup
+
+From the project root:
+
+```powershell
+cd backend
+npm install
+copy .env.example .env
+```
+
+Open `backend/.env` and set your MySQL password:
+
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=questlog
+DB_SSL=false
+JWT_SECRET=replace_with_a_long_random_secret_at_least_32_chars
+```
+
+Seed demo data:
+
+```powershell
+npm run seed
+```
+
+Start the backend:
+
+```powershell
+npm run dev
+```
+
+The API runs at:
+
+```text
+http://localhost:5000
+```
+
+## Frontend Setup
+
+Open a second terminal from the project root:
+
+```powershell
 npm install
 npm run dev
 ```
 
-Open the local URL shown by Vite, usually:
+If PowerShell blocks `npm`, use:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+Open:
 
 ```text
 http://localhost:5173
@@ -48,18 +112,48 @@ http://localhost:5173
 
 ## Build Test
 
-```bash
+Frontend:
+
+```powershell
 npm run build
 npm run preview
 ```
 
-## Deploy To Vercel
+Backend:
 
-1. Push this folder to a GitHub repository.
-2. Open Vercel.
-3. Click `Add New Project`.
-4. Import the GitHub repository.
-5. Use these settings:
+```powershell
+cd backend
+npm start
+```
+
+## API Summary
+
+```text
+POST   /api/auth/register
+POST   /api/auth/login
+GET    /api/auth/me
+POST   /api/auth/reset-password
+POST   /api/auth/logout
+
+GET    /api/tasks
+POST   /api/tasks
+PUT    /api/tasks/:taskId
+DELETE /api/tasks/:taskId
+PATCH  /api/tasks/:taskId/status
+
+GET    /api/notifications
+PATCH  /api/notifications/:notificationId
+
+GET    /api/admin/users
+PATCH  /api/admin/users/:userId/status
+GET    /api/admin/logs
+```
+
+## Deploy Frontend To Vercel
+
+Deploy the project root to Vercel.
+
+Use:
 
 ```text
 Framework Preset: Vite
@@ -68,8 +162,40 @@ Output Directory: dist
 Install Command: npm install
 ```
 
-The included `vercel.json` supports React Router page refreshes after deployment.
+Add this frontend environment variable in Vercel:
 
-## Future Backend Integration
+```env
+VITE_API_URL=https://your-render-backend-url.onrender.com/api
+```
 
-When you are ready to add MySQL and a backend, replace the localStorage logic in `src/context/AppContext.jsx` with API calls to your Node/Express server. The frontend routes and screens are already separated enough to connect these workflows to real endpoints later.
+## Deploy Backend To Render
+
+Deploy the `backend` folder as a Render Web Service.
+
+Use:
+
+```text
+Build Command: npm install
+Start Command: npm start
+```
+
+Add backend environment variables in Render:
+
+```env
+PORT=5000
+NODE_ENV=production
+FRONTEND_URL=https://your-vercel-app.vercel.app
+FRONTEND_URLS=https://your-vercel-app.vercel.app,http://localhost:5173
+DB_HOST=your_online_mysql_host
+DB_PORT=3306
+DB_USER=your_online_mysql_user
+DB_PASSWORD=your_online_mysql_password
+DB_NAME=questlog
+DB_SSL=true
+DB_SSL_CA=your_mysql_ca_certificate_if_required
+JWT_SECRET=your_long_random_secret
+JWT_EXPIRES_IN=1d
+BCRYPT_SALT_ROUNDS=12
+```
+
+Your deployed backend cannot connect to a MySQL database that only exists on your laptop. For online deployment, use an online MySQL provider.

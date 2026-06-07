@@ -1,293 +1,236 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { clearSession, now, readSession, readStore, resetStore, uid, writeSession, writeStore } from '../lib/storage';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { defaultSettings } from '../data/seedData';
+import { api, clearToken, getErrorMessage, readToken, saveToken } from '../lib/api';
 
 const AppContext = createContext(null);
+const SETTINGS_KEY = 'questlog_settings_v1';
 
-function createLog(userId, action, details) {
-  return {
-    log_id: uid('log'),
-    user_id: userId,
-    action,
-    details,
-    log_date: now(),
-  };
-}
+function readSettings() {
+  const raw = localStorage.getItem(SETTINGS_KEY);
+  if (!raw) return defaultSettings;
 
-function createNotification(userId, message) {
-  return {
-    notification_id: uid('not'),
-    user_id: userId,
-    message,
-    notification_status: 'unread',
-    notification_date: now(),
-  };
-}
-
-function withoutPassword(user) {
-  if (!user) return null;
-  const { password, ...safeUser } = user;
-  return safeUser;
+  try {
+    return { ...defaultSettings, ...JSON.parse(raw) };
+  } catch {
+    return defaultSettings;
+  }
 }
 
 export function AppProvider({ children }) {
-  const [store, setStore] = useState(() => readStore());
-  const [session, setSession] = useState(() => readSession());
+  const [store, setStore] = useState({
+    users: [],
+    tasks: [],
+    notifications: [],
+    activityLogs: [],
+    settings: readSettings(),
+  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(Boolean(readToken()));
   const [toast, setToast] = useState(null);
-
-  useEffect(() => {
-    writeStore(store);
-  }, [store]);
-
-  const currentUser = useMemo(() => {
-    if (!session?.user_id) return null;
-    return withoutPassword(store.users.find((user) => user.user_id === session.user_id));
-  }, [session, store.users]);
-
-  useEffect(() => {
-    const theme = store.settings?.theme ?? defaultSettings.theme;
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [store.settings?.theme]);
 
   function notify(type, message) {
     setToast({ id: Date.now(), type, message });
   }
 
-  function mutate(updater) {
-    setStore((current) => {
-      const next = updater(current);
-      writeStore(next);
-      return next;
-    });
-  }
+  const loadUserData = useCallback(async (user) => {
+    if (!user) return;
 
-  function login(email, password) {
-    const cleanEmail = email.trim().toLowerCase();
-    const user = store.users.find((item) => item.email.toLowerCase() === cleanEmail);
+    if (user.role === 'admin') {
+      const [usersRes, notificationsRes, logsRes] = await Promise.all([
+        api.get('/admin/users'),
+        api.get('/notifications'),
+        api.get('/admin/logs'),
+      ]);
 
-    if (!user || user.password !== password) {
-      notify('error', 'Invalid email or password.');
-      return { ok: false };
-    }
-
-    if (!user.is_active) {
-      notify('error', 'This account is currently deactivated.');
-      return { ok: false };
-    }
-
-    const nextSession = {
-      user_id: user.user_id,
-      token: uid('session'),
-      login_at: now(),
-    };
-    writeSession(nextSession);
-    setSession(nextSession);
-    mutate((current) => ({
-      ...current,
-      activityLogs: [createLog(user.user_id, 'Login', `${user.username} signed in.`), ...current.activityLogs],
-    }));
-    notify('success', `Welcome back, ${user.username}.`);
-    return { ok: true, role: user.role };
-  }
-
-  function register(payload) {
-    const email = payload.email.trim().toLowerCase();
-    const username = payload.username.trim();
-
-    if (store.users.some((user) => user.email.toLowerCase() === email)) {
-      notify('error', 'Email is already registered.');
-      return { ok: false };
-    }
-
-    const newUser = {
-      user_id: uid('usr'),
-      username,
-      email,
-      password: payload.password,
-      role: 'user',
-      is_active: true,
-      created_at: now(),
-      updated_at: now(),
-    };
-
-    mutate((current) => ({
-      ...current,
-      users: [newUser, ...current.users],
-      activityLogs: [createLog(newUser.user_id, 'Registration', `${username} created an account.`), ...current.activityLogs],
-      notifications: [createNotification(newUser.user_id, 'Welcome to QuestLog. Create your first quest to begin.'), ...current.notifications],
-    }));
-    notify('success', 'Account created. You can now log in.');
-    return { ok: true };
-  }
-
-  function resetPassword(email, newPassword) {
-    const cleanEmail = email.trim().toLowerCase();
-    const user = store.users.find((item) => item.email.toLowerCase() === cleanEmail);
-    if (!user) {
-      notify('error', 'No account was found with that email.');
-      return { ok: false };
-    }
-
-    mutate((current) => ({
-      ...current,
-      users: current.users.map((item) =>
-        item.user_id === user.user_id ? { ...item, password: newPassword, updated_at: now() } : item,
-      ),
-      activityLogs: [createLog(user.user_id, 'Password Reset', 'Password was reset from the recovery page.'), ...current.activityLogs],
-    }));
-    notify('success', 'Password reset complete. Please sign in again.');
-    return { ok: true };
-  }
-
-  function logout() {
-    if (currentUser) {
-      mutate((current) => ({
+      setStore((current) => ({
         ...current,
-        activityLogs: [createLog(currentUser.user_id, 'Logout', `${currentUser.username} signed out.`), ...current.activityLogs],
+        users: usersRes.data.users,
+        notifications: notificationsRes.data.notifications,
+        activityLogs: logsRes.data.activityLogs,
+        tasks: [],
       }));
+      return;
     }
-    clearSession();
-    setSession(null);
+
+    const [tasksRes, notificationsRes] = await Promise.all([api.get('/tasks'), api.get('/notifications')]);
+    setStore((current) => ({
+      ...current,
+      tasks: tasksRes.data.tasks,
+      notifications: notificationsRes.data.notifications,
+      users: [user],
+      activityLogs: [],
+    }));
+  }, []);
+
+  const refreshData = useCallback(async () => {
+    if (!currentUser) return;
+    await loadUserData(currentUser);
+  }, [currentUser, loadUserData]);
+
+  useEffect(() => {
+    const theme = store.settings?.theme ?? defaultSettings.theme;
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(store.settings));
+  }, [store.settings]);
+
+  useEffect(() => {
+    async function bootstrap() {
+      const token = readToken();
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await api.get('/auth/me');
+        setCurrentUser(response.data.user);
+        await loadUserData(response.data.user);
+      } catch {
+        clearToken();
+        setCurrentUser(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    bootstrap();
+  }, [loadUserData]);
+
+  async function login(email, password) {
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      saveToken(response.data.token);
+      setCurrentUser(response.data.user);
+      await loadUserData(response.data.user);
+      notify('success', `Welcome back, ${response.data.user.username}.`);
+      return { ok: true, role: response.data.user.role };
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+      return { ok: false };
+    }
+  }
+
+  async function register(payload) {
+    try {
+      await api.post('/auth/register', payload);
+      notify('success', 'Account created. You can now log in.');
+      return { ok: true };
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+      return { ok: false };
+    }
+  }
+
+  async function resetPassword(email, password) {
+    try {
+      await api.post('/auth/reset-password', { email, password });
+      notify('success', 'Password reset complete. Please sign in again.');
+      return { ok: true };
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+      return { ok: false };
+    }
+  }
+
+  async function logout() {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // The frontend still clears the expired or unreachable session.
+    }
+
+    clearToken();
+    setCurrentUser(null);
+    setStore((current) => ({ ...current, users: [], tasks: [], notifications: [], activityLogs: [] }));
     notify('success', 'Signed out.');
   }
 
-  function createTask(payload) {
-    if (!currentUser) return { ok: false };
-    const task = {
-      task_id: uid('task'),
-      user_id: currentUser.user_id,
-      title: payload.title.trim(),
-      description: payload.description.trim(),
-      priority_level: payload.priority_level,
-      deadline: payload.deadline,
-      status: 'pending',
-      created_at: now(),
-      updated_at: now(),
-    };
-
-    mutate((current) => ({
-      ...current,
-      tasks: [task, ...current.tasks],
-      notifications: [
-        createNotification(currentUser.user_id, `${task.title} was added to your quest list.`),
-        ...current.notifications,
-      ],
-      activityLogs: [createLog(currentUser.user_id, 'Task Created', `${task.title} was created.`), ...current.activityLogs],
-    }));
-    notify('success', 'Task created.');
-    return { ok: true };
+  async function createTask(payload) {
+    try {
+      await api.post('/tasks', payload);
+      await refreshData();
+      notify('success', 'Task created.');
+      return { ok: true };
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+      return { ok: false };
+    }
   }
 
-  function updateTask(taskId, payload) {
-    if (!currentUser) return { ok: false };
-    const original = store.tasks.find((task) => task.task_id === taskId);
-    if (!original || original.user_id !== currentUser.user_id) return { ok: false };
-
-    mutate((current) => ({
-      ...current,
-      tasks: current.tasks.map((task) =>
-        task.task_id === taskId
-          ? {
-              ...task,
-              title: payload.title.trim(),
-              description: payload.description.trim(),
-              priority_level: payload.priority_level,
-              deadline: payload.deadline,
-              updated_at: now(),
-            }
-          : task,
-      ),
-      activityLogs: [createLog(currentUser.user_id, 'Task Updated', `${payload.title} was updated.`), ...current.activityLogs],
-    }));
-    notify('success', 'Task updated.');
-    return { ok: true };
+  async function updateTask(taskId, payload) {
+    try {
+      await api.put(`/tasks/${taskId}`, payload);
+      await refreshData();
+      notify('success', 'Task updated.');
+      return { ok: true };
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+      return { ok: false };
+    }
   }
 
-  function deleteTask(taskId) {
-    if (!currentUser) return;
+  async function deleteTask(taskId) {
+    try {
+      await api.delete(`/tasks/${taskId}`);
+      await refreshData();
+      notify('success', 'Task deleted.');
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+    }
+  }
+
+  async function toggleTaskStatus(taskId) {
     const task = store.tasks.find((item) => item.task_id === taskId);
-    if (!task || task.user_id !== currentUser.user_id) return;
+    if (!task) return;
 
-    mutate((current) => ({
-      ...current,
-      tasks: current.tasks.filter((item) => item.task_id !== taskId),
-      activityLogs: [createLog(currentUser.user_id, 'Task Deleted', `${task.title} was deleted.`), ...current.activityLogs],
-    }));
-    notify('success', 'Task deleted.');
-  }
-
-  function toggleTaskStatus(taskId) {
-    if (!currentUser) return;
-    const task = store.tasks.find((item) => item.task_id === taskId);
-    if (!task || task.user_id !== currentUser.user_id) return;
     const nextStatus = task.status === 'completed' ? 'pending' : 'completed';
-
-    mutate((current) => ({
-      ...current,
-      tasks: current.tasks.map((item) =>
-        item.task_id === taskId ? { ...item, status: nextStatus, updated_at: now() } : item,
-      ),
-      activityLogs: [
-        createLog(
-          currentUser.user_id,
-          nextStatus === 'completed' ? 'Task Completed' : 'Task Reopened',
-          `${task.title} was marked as ${nextStatus}.`,
-        ),
-        ...current.activityLogs,
-      ],
-      notifications:
-        nextStatus === 'completed'
-          ? [createNotification(currentUser.user_id, `${task.title} completed. XP gained.`), ...current.notifications]
-          : current.notifications,
-    }));
-    notify('success', nextStatus === 'completed' ? 'Task completed.' : 'Task returned to pending.');
+    try {
+      await api.patch(`/tasks/${taskId}/status`, { status: nextStatus });
+      await refreshData();
+      notify('success', nextStatus === 'completed' ? 'Task completed.' : 'Task returned to pending.');
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+    }
   }
 
-  function markNotification(notificationId, status = 'read') {
-    mutate((current) => ({
-      ...current,
-      notifications: current.notifications.map((item) =>
-        item.notification_id === notificationId ? { ...item, notification_status: status } : item,
-      ),
-    }));
+  async function markNotification(notificationId, status = 'read') {
+    try {
+      await api.patch(`/notifications/${notificationId}`, { notification_status: status });
+      await refreshData();
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+    }
   }
 
-  function toggleUserActive(userId) {
+  async function toggleUserActive(userId) {
     const target = store.users.find((user) => user.user_id === userId);
     if (!currentUser || currentUser.role !== 'admin' || !target || target.role === 'admin') return;
-    const nextActive = !target.is_active;
 
-    mutate((current) => ({
-      ...current,
-      users: current.users.map((user) =>
-        user.user_id === userId ? { ...user, is_active: nextActive, updated_at: now() } : user,
-      ),
-      activityLogs: [
-        createLog(currentUser.user_id, nextActive ? 'User Reactivated' : 'User Deactivated', `${target.email} status changed.`),
-        ...current.activityLogs,
-      ],
-    }));
-    notify('success', `User ${nextActive ? 'reactivated' : 'deactivated'}.`);
+    try {
+      await api.patch(`/admin/users/${userId}/status`, { is_active: !target.is_active });
+      await refreshData();
+      notify('success', `User ${target.is_active ? 'deactivated' : 'reactivated'}.`);
+    } catch (error) {
+      notify('error', getErrorMessage(error));
+    }
   }
 
   function updateSettings(nextSettings) {
-    mutate((current) => ({
+    setStore((current) => ({
       ...current,
       settings: { ...current.settings, ...nextSettings },
     }));
     notify('success', 'Settings saved.');
   }
 
-  function restoreDemoData() {
-    const next = resetStore();
-    setStore(next);
-    setSession(null);
-    notify('success', 'Demo data restored.');
+  async function restoreDemoData() {
+    notify('error', 'Use the backend seed command to restore database demo data.');
   }
 
   const value = {
     store,
     currentUser,
+    loading,
     toast,
     setToast,
     login,
@@ -302,6 +245,7 @@ export function AppProvider({ children }) {
     toggleUserActive,
     updateSettings,
     restoreDemoData,
+    refreshData,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -30,15 +30,18 @@ export default function Tasks() {
       .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
   }, [store.tasks, currentUser.user_id, filter, query]);
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
+    let result;
     if (editingId) {
-      updateTask(editingId, form);
+      result = await updateTask(editingId, form);
     } else {
-      createTask(form);
+      result = await createTask(form);
     }
-    setForm(blankTask);
-    setEditingId(null);
+    if (result?.ok) {
+      setForm(blankTask);
+      setEditingId(null);
+    }
   }
 
   function edit(task) {
