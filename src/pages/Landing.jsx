@@ -33,7 +33,7 @@ export default function Landing() {
                 Create account
               </Link>
             </div>
-        //    
+          
           </div>
 
           <div className="rounded-lg border border-white/10 bg-white/10 p-5 shadow-soft backdrop-blur">
