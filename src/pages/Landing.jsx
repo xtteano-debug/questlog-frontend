@@ -33,7 +33,7 @@ export default function Landing() {
                 Create account
               </Link>
             </div>
-            <p className="mt-5 text-sm text-slate-400">Demo login: demo@questlog.test / demo1234 | Admin: admin@questlog.test / admin1234</p>
+        //    
           </div>
 
           <div className="rounded-lg border border-white/10 bg-white/10 p-5 shadow-soft backdrop-blur">
